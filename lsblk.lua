@@ -1,5 +1,7 @@
 #! /usr/libexec/flua
--- https://github.com/dbohdan/freebsd-lsblk-lua
+-- https://github.com/dbohdan/lsblk.lua
+
+local lfs = require("lfs")
 
 local VERSION = "0.1.0"
 
