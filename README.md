@@ -4,7 +4,11 @@
 The output of lsblk.lua is modeled on [lsblk(8)](https://linux.die.net/man/8/lsblk) from [util-linux](https://en.wikipedia.org/wiki/Util-linux).
 lsblk.lua is implemented in [flua](https://kevans.dev/flua/), a version of Lua (currently Lua 5.4) included in the FreeBSD base system.
 
-lsblk.lua has been tested on FreeBSD 14.2-RELEASE.
+lsblk.lua has been tested on FreeBSD 13.4-RELEASE and 14.2-RELEASE.
+
+## Requirements
+
+FreeBSD 13 or 14 with `/usr/libexec/flua` available (the default).
 
 ## Installation
 
