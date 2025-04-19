@@ -10,6 +10,10 @@ lsblk.lua has been tested on FreeBSD 13.4-RELEASE and 14.2-RELEASE.
 
 FreeBSD 13 or 14 with `/usr/libexec/flua` available (the default).
 
+## Limitations
+
+lsblk.lua currently doesn't list ZFS pools and datasets.
+
 ## Installation
 
 ```shell
