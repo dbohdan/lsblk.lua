@@ -3,6 +3,8 @@
 
 local lfs = require("lfs")
 
+local TYPE_DISK = "disk"
+local TYPE_PART = "part"
 local VERSION = "0.1.0"
 
 local function run_cmd(cmd)
@@ -110,13 +112,69 @@ local function geom_parse_list(geom_output)
 	return geoms
 end
 
+local function parse_mediasize(mediasize)
+	return tonumber(mediasize:match("^(%d+)"))
+end
+
+-- Take the result of `geom_parse_list` and convert it to our custom format
+-- adding information from the system.
+local function geoms_device_info(geoms, dev_mounts)
+	local devices = {}
+
+	for _, geom in ipairs(geoms) do
+		local geom_name = geom["geom name"]
+		local geom_major, geom_minor = get_major_minor(geom_name)
+		local geom_mounts = dev_mounts(geom_name) or {}
+
+		local geom_size = 0
+		for _, provider in ipairs(geom.providers) do
+			geom_size = geom_size + parse_mediasize(provider.mediasize)
+		end
+
+		table.insert(
+			devices,
+			{
+				name = geom_name,
+				major = geom_major,
+				minor = geom_minor,
+				size = geom_size,
+				type = TYPE_DISK,
+				fstype = "-",
+				mountpoints = geom_mounts,
+			}
+		)
+
+		for i, provider in ipairs(geom.providers) do
+			local last = i == #geom.providers
+			local name = provider["name"]
+			local major, minor = get_major_minor(name)
+			local mounts = dev_mounts(name) or {}
+
+			table.insert(
+				devices,
+				{
+					last = last,
+					name = name,
+					major = major,
+					minor = minor,
+					size = parse_mediasize(provider.mediasize),
+					type = TYPE_PART,
+					fstype = provider.type,
+					mountpoints = mounts,
+				}
+			)
+		end
+	end
+
+	return devices
+end
+
 local MARKER_NONE = 0
 local MARKER_MIDDLE = 1
 local MARKER_LAST = 2
 
 local function print_item(
 	max_lens,
-	level,
 	marker,
 	name,
 	major,
@@ -127,17 +185,17 @@ local function print_item(
 	mountpoints
 )
 	local function format_str(prefix)
-        -- `string.format` counts bytes, not Unicode characters.
-        return "%-"
-            .. (max_lens.name + math.max(2, #prefix))
-            .. "s %3s%1s%-3s %6s %4s %"
-            .. max_lens.fstype
-            .. "s %s"
-    end
+		-- `string.format` counts bytes, not Unicode characters.
+		return "%-"
+			.. (max_lens.name + math.max(2, #prefix))
+			.. "s %3s%1s%-3s %6s %4s %"
+			.. max_lens.fstype
+			.. "s %s"
+	end
 
 	local prefix = ""
 	local prefix_rest = ""
-	if level > 0 then
+	if type == TYPE_PART then
 		if marker == MARKER_MIDDLE then
 			prefix = "├─"
 			prefix_rest = "│ "
@@ -219,30 +277,19 @@ local function humanize_size(bytes)
 	return s .. units[i]
 end
 
-local function parse_mediasize(mediasize)
-	return tonumber(mediasize:match("^(%d+)"))
-end
-
-local function max_field_lengths(geoms)
+local function max_field_lengths(devices)
 	local max_lens = { fstype = 0, name = 0 }
 
-	for _, geom in ipairs(geoms) do
-        -- Use byte length for `string.format`.
-		local len = #geom["geom name"]
-		if len > max_lens.name then
-			max_lens.name = len
+	for _, device in ipairs(devices) do
+		-- Use byte length for `string.format`.
+		local len_name = #device.name
+		if len_name > max_lens.name then
+			max_lens.name = len_name
 		end
 
-		for _, provider in ipairs(geom.providers) do
-			len = #provider.name
-			if len > max_lens.name then
-				max_lens.name = len
-			end
-
-			len = #provider.type
-			if len > max_lens.fstype then
-				max_lens.fstype = len
-			end
+		local len_fstype = #device.fstype
+		if len_fstype > max_lens.fstype then
+			max_lens.fstype = len_fstype
 		end
 	end
 
@@ -260,11 +307,11 @@ local function print_tree()
 		return mounts[dev] or mounts["/dev/" .. dev]
 	end
 
-	local max_lens = max_field_lengths(geoms)
+	local devices = geoms_device_info(geoms, dev_mounts)
+	local max_lens = max_field_lengths(devices)
 
 	print_item(
 		max_lens,
-		0,
 		MARKER_NONE,
 		"NAME",
 		"MAJ",
@@ -275,47 +322,18 @@ local function print_tree()
 		{ "MOUNTPOINTS" }
 	)
 
-	for _, geom in ipairs(geoms) do
-		local geom_name = geom["geom name"]
-		local major, minor = get_major_minor(geom_name)
-
-		local geom_size = 0
-		for _, provider in ipairs(geom.providers) do
-			geom_size = geom_size + parse_mediasize(provider.mediasize)
-		end
-
-		local geom_mounts = dev_mounts(geom_name) or {}
+	for _, device in ipairs(devices) do
 		print_item(
 			max_lens,
-			0,
-			MARKER_NONE,
-			geom_name,
-			format_device_num(major),
-			format_device_num(minor),
-			humanize_size(geom_size),
-			"disk",
-			"-",
-			geom_mounts
+			device.last and MARKER_LAST or MARKER_MIDDLE,
+			device.name,
+			format_device_num(device.major),
+			format_device_num(device.minor),
+			humanize_size(device.size),
+			device.type,
+			device.fstype,
+			device.mountpoints
 		)
-
-		for i, provider in ipairs(geom.providers) do
-			local name = provider["name"]
-			local major, minor = get_major_minor(name)
-
-			local provider_mounts = dev_mounts(name) or {}
-			print_item(
-				max_lens,
-				1,
-				i == #geom.providers and MARKER_LAST or MARKER_MIDDLE,
-				name,
-				format_device_num(major),
-				format_device_num(minor),
-				humanize_size(parse_mediasize(provider.mediasize)),
-				"part",
-				provider.type,
-				provider_mounts
-			)
-		end
 	end
 end
 
