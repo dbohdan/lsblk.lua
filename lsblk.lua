@@ -278,13 +278,13 @@ local function main()
 		elseif arg[1] == "-V" or arg[1] == "--version" then
 			print(VERSION)
 			os.exit(0)
-		else
-			print("unknown argument: " .. arg[1])
+		elseif arg[1]:match("^-") then
+			print(("lsblk: unrecognized option %q"):format(arg[1]))
 			os.exit(2)
 		end
 	end
-	if #arg >= 2 then
-		print("too many arguments")
+	if #arg >= 1 then
+		print("lsblk: too many arguments")
 		os.exit(2)
 	end
 
