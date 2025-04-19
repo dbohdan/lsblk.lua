@@ -5,7 +5,7 @@ local lfs = require("lfs")
 
 local TYPE_DISK = "disk"
 local TYPE_PART = "part"
-local VERSION = "0.1.0"
+local VERSION = "0.2.0"
 
 local function run_cmd(cmd)
 	local f = io.popen(cmd .. " 2>/dev/null", "r")
@@ -55,9 +55,9 @@ end
 local function geom_parse_list(geom_output)
 	local geoms = {}
 
-	local current_item = nil
-	local current_section = nil
-	local geom = nil
+	local current_item
+	local current_section
+	local geom
 
 	local function new_geom()
 		geom = {
@@ -77,10 +77,10 @@ local function geom_parse_list(geom_output)
 			goto continue
 		end
 
-		local name = line:match("^Geom name:%s+(%S+)$")
-		if name then
-			local geom = new_geom()
-			geom["geom name"] = name
+		local geom_name = line:match("^Geom name:%s+(%S+)$")
+		if geom_name then
+			new_geom()
+			geom["geom name"] = geom_name
 			goto continue
 		end
 
@@ -131,18 +131,15 @@ local function geoms_device_info(geoms, dev_mounts)
 			geom_size = geom_size + parse_mediasize(provider.mediasize)
 		end
 
-		table.insert(
-			devices,
-			{
-				name = geom_name,
-				major = geom_major,
-				minor = geom_minor,
-				size = geom_size,
-				type = TYPE_DISK,
-				fstype = "-",
-				mountpoints = geom_mounts,
-			}
-		)
+		table.insert(devices, {
+			name = geom_name,
+			major = geom_major,
+			minor = geom_minor,
+			size = geom_size,
+			type = TYPE_DISK,
+			fstype = "-",
+			mountpoints = geom_mounts,
+		})
 
 		for i, provider in ipairs(geom.providers) do
 			local last = i == #geom.providers
@@ -150,19 +147,16 @@ local function geoms_device_info(geoms, dev_mounts)
 			local major, minor = get_major_minor(name)
 			local mounts = dev_mounts(name) or {}
 
-			table.insert(
-				devices,
-				{
-					last = last,
-					name = name,
-					major = major,
-					minor = minor,
-					size = parse_mediasize(provider.mediasize),
-					type = TYPE_PART,
-					fstype = provider.type,
-					mountpoints = mounts,
-				}
-			)
+			table.insert(devices, {
+				last = last,
+				name = name,
+				major = major,
+				minor = minor,
+				size = parse_mediasize(provider.mediasize),
+				type = TYPE_PART,
+				fstype = provider.type,
+				mountpoints = mounts,
+			})
 		end
 	end
 
@@ -296,6 +290,65 @@ local function max_field_lengths(devices)
 	return max_lens
 end
 
+local function parse_fields(lines)
+	local parsed_lines = {}
+
+	for _, line in ipairs(lines) do
+		local fields = {}
+
+		for field in line:gmatch("%S+") do
+			table.insert(fields, field)
+		end
+
+		table.insert(parsed_lines, fields)
+	end
+
+	return parsed_lines
+end
+
+local function zfs_device_info(pools, datasets)
+	local dataset_index = {}
+	local devices = {}
+
+	for _, dataset in ipairs(datasets) do
+		local pool = dataset[1]:match("^[^/]+")
+
+		if not dataset_index[pool] then
+			dataset_index[pool] = { dataset }
+		else
+			table.insert(dataset_index[pool], dataset)
+		end
+	end
+
+	for _, pool in ipairs(pools) do
+		table.insert(devices, {
+			name = pool[1],
+			major = "-",
+			minor = "-",
+			size = tonumber(pool[2]),
+			type = TYPE_DISK,
+			fstype = "-",
+			mountpoints = "-",
+		})
+
+		local pool_datasets = dataset_index[pool[1]]
+		for i, dataset in ipairs(pool_datasets) do
+			table.insert(devices, {
+				last = i == #pool_datasets,
+				name = dataset[1],
+				major = "-",
+				minor = "-",
+				size = tonumber(dataset[2]),
+				type = TYPE_PART,
+				fstype = "zfs",
+				mountpoints = { dataset[3] },
+			})
+		end
+	end
+
+	return devices
+end
+
 local function print_tree()
 	local geom_list = run_cmd("geom part list")
 	local geoms = geom_parse_list(geom_list)
@@ -303,11 +356,24 @@ local function print_tree()
 	local mount_list = run_cmd("mount")
 	local mounts = parse_mount(mount_list)
 
+	local zpool_list = run_cmd("zpool list -H -o name,size -p")
+	local zfs_pools = parse_fields(zpool_list)
+
+	local zfs_list = run_cmd("zfs list -H -o name,used,mountpoint -p")
+	local zfs_datasets = parse_fields(zfs_list)
+
 	local function dev_mounts(dev)
 		return mounts[dev] or mounts["/dev/" .. dev]
 	end
 
-	local devices = geoms_device_info(geoms, dev_mounts)
+	local geom_devices = geoms_device_info(geoms, dev_mounts)
+	local zfs_devices = zfs_device_info(zfs_pools, zfs_datasets)
+
+	local devices = {}
+	for _, tbl in ipairs({ geom_devices, zfs_devices }) do
+		table.move(tbl, 1, #tbl, #devices + 1, devices)
+	end
+
 	local max_lens = max_field_lengths(devices)
 
 	print_item(
