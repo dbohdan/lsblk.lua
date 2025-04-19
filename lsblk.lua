@@ -110,32 +110,70 @@ local function geom_parse_list(geom_output)
 	return geoms
 end
 
+local MARKER_NONE = 0
+local MARKER_MIDDLE = 1
+local MARKER_LAST = 2
+
 local function print_item(
-	format,
+	max_lens,
 	level,
-	final,
+	marker,
 	name,
 	major,
 	minor,
 	size,
 	type,
+	fstype,
 	mountpoints
 )
+	local function format_str(prefix)
+        -- `string.format` counts bytes, not Unicode characters.
+        return "%-"
+            .. (max_lens.name + math.max(2, #prefix))
+            .. "s %3s%1s%-3s %6s %4s %"
+            .. max_lens.fstype
+            .. "s %s"
+    end
+
 	local prefix = ""
-	for _ = 1, level - 1 do
-		prefix = prefix .. "  "
-	end
+	local prefix_rest = ""
 	if level > 0 then
-		if final then
-			prefix = prefix .. "└─"
-		else
-			prefix = prefix .. "├─"
+		if marker == MARKER_MIDDLE then
+			prefix = "├─"
+			prefix_rest = "│ "
+		elseif marker == MARKER_LAST then
+			prefix = "└─"
+			prefix_rest = "  "
 		end
 	end
 
-	print(
-		string.format(format, prefix .. name, major, minor, size, type, mountpoints)
+	local formatted = string.format(
+		format_str(prefix),
+		prefix .. name,
+		major,
+		":",
+		minor,
+		size,
+		type,
+		fstype,
+		mountpoints[1] or ""
 	)
+	print(formatted)
+
+	for i = 2, #mountpoints do
+		formatted = string.format(
+			format_str(prefix_rest),
+			prefix_rest,
+			"",
+			"",
+			" ",
+			"",
+			"",
+			"",
+			mountpoints[i]
+		)
+		print(formatted)
+	end
 end
 
 local function parse_mount(mount_output)
@@ -165,20 +203,6 @@ local function format_device_num(number)
 	return tostring(number):gsub("%.0$", "")
 end
 
-local function print_rest_of_mounts(format, mounts)
-	local first = true
-	for _, mount in ipairs(mounts) do
-		if first then
-			first = false
-			goto continue
-		end
-
-		print_item(format:gsub(":", " "), 0, false, "", "", "", "", "", mount)
-
-		::continue::
-	end
-end
-
 -- Convert a size in bytes to a human‑readable string, dropping `.0`.
 local function humanize_size(bytes)
 	local units = { "B", "K", "M", "G", "T", "P", "E" }
@@ -199,6 +223,32 @@ local function parse_mediasize(mediasize)
 	return tonumber(mediasize:match("^(%d+)"))
 end
 
+local function max_field_lengths(geoms)
+	local max_lens = { fstype = 0, name = 0 }
+
+	for _, geom in ipairs(geoms) do
+        -- Use byte length for `string.format`.
+		local len = #geom["geom name"]
+		if len > max_lens.name then
+			max_lens.name = len
+		end
+
+		for _, provider in ipairs(geom.providers) do
+			len = #provider.name
+			if len > max_lens.name then
+				max_lens.name = len
+			end
+
+			len = #provider.type
+			if len > max_lens.fstype then
+				max_lens.fstype = len
+			end
+		end
+	end
+
+	return max_lens
+end
+
 local function print_tree()
 	local geom_list = run_cmd("geom part list")
 	local geoms = geom_parse_list(geom_list)
@@ -210,22 +260,20 @@ local function print_tree()
 		return mounts[dev] or mounts["/dev/" .. dev]
 	end
 
-	local longest = 0
-	for _, geom in ipairs(geoms) do
-		if #geom["geom name"] > longest then
-			longest = #geom["geom name"]
-		end
+	local max_lens = max_field_lengths(geoms)
 
-		for _, provider in ipairs(geom.providers) do
-			if #provider.name > longest then
-				longest = #provider.name
-			end
-		end
-	end
-	longest = longest + 2
-	local format = "%-" .. longest .. "s %3s:%-3s %6s %4s %s"
-
-	print_item(format, 0, nil, "NAME", "MAJ", "MIN", "SIZE", "TYPE", "MOUNTPOINTS")
+	print_item(
+		max_lens,
+		0,
+		MARKER_NONE,
+		"NAME",
+		"MAJ",
+		"MIN",
+		"SIZE",
+		"TYPE",
+		"FSTYPE",
+		{ "MOUNTPOINTS" }
+	)
 
 	for _, geom in ipairs(geoms) do
 		local geom_name = geom["geom name"]
@@ -238,17 +286,17 @@ local function print_tree()
 
 		local geom_mounts = dev_mounts(geom_name) or {}
 		print_item(
-			format,
+			max_lens,
 			0,
-			nil,
+			MARKER_NONE,
 			geom_name,
 			format_device_num(major),
 			format_device_num(minor),
 			humanize_size(geom_size),
 			"disk",
-			geom_mounts[1] or ""
+			"-",
+			geom_mounts
 		)
-		print_rest_of_mounts(format, geom_mounts)
 
 		for i, provider in ipairs(geom.providers) do
 			local name = provider["name"]
@@ -256,17 +304,17 @@ local function print_tree()
 
 			local provider_mounts = dev_mounts(name) or {}
 			print_item(
-				format,
+				max_lens,
 				1,
-				i == #geom.providers,
+				i == #geom.providers and MARKER_LAST or MARKER_MIDDLE,
 				name,
 				format_device_num(major),
 				format_device_num(minor),
 				humanize_size(parse_mediasize(provider.mediasize)),
 				"part",
-				provider_mounts[1] or ""
+				provider.type,
+				provider_mounts
 			)
-			print_rest_of_mounts(format, provider_mounts)
 		end
 	end
 end
