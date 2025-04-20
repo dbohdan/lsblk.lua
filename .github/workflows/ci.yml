@@ -35,7 +35,4 @@ jobs:
           version: ${{ matrix.os.version }}
           shell: bash
           run: |
-            echo === ./lsblk.lua -V
-            ./lsblk.lua -V
-            echo === ./lsblk.lua
-            ./lsblk.lua
+            ./test.sh
