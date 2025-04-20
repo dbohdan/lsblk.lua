@@ -3,10 +3,23 @@
 
 local lfs = require("lfs")
 
+--[[
+Constants
+--]]
+local MARKER_NONE = 0
+local MARKER_MIDDLE = 1
+local MARKER_LAST = 2
+
 local TYPE_DISK = "disk"
 local TYPE_PART = "part"
+
 local VERSION = "0.3.0"
 
+--[[
+Utility functions
+--]]
+
+-- Execute a shell command and return its output as an array of lines.
 local function run_cmd(cmd)
 	local f = io.popen(cmd .. " 2>/dev/null", "r")
 	local lines = {}
@@ -17,6 +30,7 @@ local function run_cmd(cmd)
 	return lines
 end
 
+-- Get major/minor device numbers for a device name.
 local function get_major_minor(dev)
 	if not dev then
 		return "-", "-"
@@ -32,6 +46,37 @@ local function get_major_minor(dev)
 	return "-", "-"
 end
 
+-- Trim leading and trailing whitespace from a string.
+local function trim(s)
+	return s:match("^%s*(.-)%s*$")
+end
+
+-- Format a device number, removing trailing `.0`.
+local function format_device_num(number)
+	return tostring(number):gsub("%.0$", "")
+end
+
+-- Convert a size in bytes to a human-readable string.
+local function humanize_size(bytes)
+	local units = { "B", "K", "M", "G", "T", "P", "E" }
+	local i = 1
+
+	while bytes >= 1024 and i < #units do
+		bytes = bytes / 1024
+		i = i + 1
+	end
+
+	local s = string.format("%.1f", bytes)
+	s = s:gsub("(%..-)0+$", "%1")
+	s = s:gsub("%.$", "")
+	return s .. units[i]
+end
+
+--[[
+Parsing
+--]]
+
+-- Parse a value string from geom output (boolean, number, or string).
 local function geom_parse_value(v)
 	if v == "true" then
 		return true
@@ -44,10 +89,6 @@ local function geom_parse_value(v)
 		return num
 	end
 	return v
-end
-
-local function trim(s)
-	return s:match("^%s*(.-)%s*$")
 end
 
 -- Parse the output of `geom <class> list`.
@@ -112,13 +153,60 @@ local function geom_parse_list(geom_output)
 	return geoms
 end
 
+-- Parse the output of the `mount` command.
+local function parse_mount(mount_output)
+	local mounts = {}
+
+	for _, line in ipairs(mount_output) do
+		line = trim(line)
+		if line == "" then
+			goto continue
+		end
+
+		local device, mountpoint = line:match("^(.-) on (.-) %(")
+		if device and mountpoint then
+			if not mounts[device] then
+				mounts[device] = {}
+			end
+			table.insert(mounts[device], mountpoint)
+		end
+
+		::continue::
+	end
+
+	return mounts
+end
+
+-- Parse lines of text into tables of whitespace-separated fields, awk-style.
+local function parse_fields(lines)
+	local parsed_lines = {}
+
+	for _, line in ipairs(lines) do
+		local fields = {}
+
+		for field in line:gmatch("%S+") do
+			table.insert(fields, field)
+		end
+
+		table.insert(parsed_lines, fields)
+	end
+
+	return parsed_lines
+end
+
+-- Extract the bytes value from a geom mediasize string.
 local function parse_mediasize(mediasize)
 	return tonumber(mediasize:match("^(%d+)"))
 end
 
--- Take the result of `geom_parse_list` and convert it to our custom format
--- adding information from the system.
-local function geoms_device_info(geoms, dev_mounts)
+--[[
+Data transformation
+--]]
+
+-- Take convert the result of `geom_parse_list` to our custom device format.
+-- Add information from the system
+-- (major and minor device number, mountpoints).
+local function geom_device_info(geoms, dev_mounts)
 	local devices = {}
 
 	for _, geom in ipairs(geoms) do
@@ -163,158 +251,9 @@ local function geoms_device_info(geoms, dev_mounts)
 	return devices
 end
 
-local MARKER_NONE = 0
-local MARKER_MIDDLE = 1
-local MARKER_LAST = 2
-
-local function print_item(
-	max_lens,
-	marker,
-	name,
-	major,
-	minor,
-	size,
-	type,
-	fstype,
-	mountpoints
-)
-	local function format_str(prefix)
-		-- `string.format` counts bytes, not Unicode characters.
-		return "%-"
-			.. (max_lens.name + math.max(2, #prefix))
-			.. "s %3s%1s%-3s %"
-			.. max_lens.size
-			.. "s %4s %"
-			.. max_lens.fstype
-			.. "s %s"
-	end
-
-	local prefix = ""
-	local prefix_rest = ""
-	if type == TYPE_PART then
-		if marker == MARKER_MIDDLE then
-			prefix = "├─"
-			prefix_rest = "│ "
-		elseif marker == MARKER_LAST then
-			prefix = "└─"
-			prefix_rest = "  "
-		end
-	end
-
-	local formatted = string.format(
-		format_str(prefix),
-		prefix .. name,
-		major,
-		":",
-		minor,
-		size,
-		type,
-		fstype,
-		mountpoints[1] or ""
-	)
-	print(formatted)
-
-	for i = 2, #mountpoints do
-		formatted = string.format(
-			format_str(prefix_rest),
-			prefix_rest,
-			"",
-			"",
-			" ",
-			"",
-			"",
-			"",
-			mountpoints[i]
-		)
-		print(formatted)
-	end
-end
-
-local function parse_mount(mount_output)
-	local mounts = {}
-
-	for _, line in ipairs(mount_output) do
-		line = trim(line)
-		if line == "" then
-			goto continue
-		end
-
-		local device, mountpoint = line:match("^(.-) on (.-) %(")
-		if device and mountpoint then
-			if not mounts[device] then
-				mounts[device] = {}
-			end
-			table.insert(mounts[device], mountpoint)
-		end
-
-		::continue::
-	end
-
-	return mounts
-end
-
-local function format_device_num(number)
-	return tostring(number):gsub("%.0$", "")
-end
-
--- Convert a size in bytes to a human‑readable string, dropping `.0`.
-local function humanize_size(bytes)
-	local units = { "B", "K", "M", "G", "T", "P", "E" }
-	local i = 1
-
-	while bytes >= 1024 and i < #units do
-		bytes = bytes / 1024
-		i = i + 1
-	end
-
-	local s = string.format("%.1f", bytes)
-	s = s:gsub("(%..-)0+$", "%1")
-	s = s:gsub("%.$", "")
-	return s .. units[i]
-end
-
-local function max_field_lengths(devices, humanize)
-	local max_lens = { fstype = 1, name = 1, size = 6 }
-
-	for _, device in ipairs(devices) do
-		-- Use byte length for `string.format`.
-		local len_fstype = #device.fstype
-		if len_fstype > max_lens.fstype then
-			max_lens.fstype = len_fstype
-		end
-
-		local size_text = humanize and humanize_size(device.size)
-			or tostring(device.size)
-		local len_size = #size_text
-		if len_size > max_lens.size then
-			max_lens.size = len_size
-		end
-
-		local len_name = #device.name
-		if len_name > max_lens.name then
-			max_lens.name = len_name
-		end
-	end
-
-	return max_lens
-end
-
-local function parse_fields(lines)
-	local parsed_lines = {}
-
-	for _, line in ipairs(lines) do
-		local fields = {}
-
-		for field in line:gmatch("%S+") do
-			table.insert(fields, field)
-		end
-
-		table.insert(parsed_lines, fields)
-	end
-
-	return parsed_lines
-end
-
+-- Convert the output of zpool(8) and zfs(8) parsed with `parse_fields`
+-- to our custom device information format.
+-- Unlike `geom_device_info`, this is a pure function.
 local function zfs_device_info(pools, datasets)
 	local dataset_index = {}
 	local devices = {}
@@ -358,9 +297,109 @@ local function zfs_device_info(pools, datasets)
 	return devices
 end
 
+-- Calculate the maximum display width needed for certain fields.
+local function max_field_lengths(devices, humanize)
+	local max_lens = { fstype = 1, name = 1, size = 6 }
+
+	for _, device in ipairs(devices) do
+		-- Use byte length for `string.format`.
+		local len_fstype = #device.fstype
+		if len_fstype > max_lens.fstype then
+			max_lens.fstype = len_fstype
+		end
+
+		local size_text = humanize and humanize_size(device.size)
+			or tostring(device.size)
+		local len_size = #size_text
+		if len_size > max_lens.size then
+			max_lens.size = len_size
+		end
+
+		local len_name = #device.name
+		if len_name > max_lens.name then
+			max_lens.name = len_name
+		end
+	end
+
+	return max_lens
+end
+
+--[[
+Output
+--]]
+
+-- Print a single formatted row (device or header).
+local function print_item(
+	max_lens,
+	marker,
+	name,
+	major,
+	minor,
+	size,
+	type,
+	fstype,
+	mountpoints
+)
+	local function format_str(prefix)
+		-- `string.format` counts bytes, not Unicode characters.
+		local name_padding = max_lens.name + math.max(2, #prefix)
+		return "%-"
+			.. name_padding
+			.. "s %3s%1s%-3s %"
+			.. max_lens.size
+			.. "s %4s %"
+			.. max_lens.fstype
+			.. "s %s"
+	end
+
+	local prefix = ""
+	local prefix_rest = ""
+	if type == TYPE_PART then
+		if marker == MARKER_MIDDLE then
+			prefix = "├─"
+			prefix_rest = "│ "
+		elseif marker == MARKER_LAST then
+			prefix = "└─"
+			prefix_rest = "  "
+		end
+	end
+
+	local formatted = string.format(
+		format_str(prefix),
+		prefix .. name,
+		major,
+		":",
+		minor,
+		size,
+		type,
+		fstype,
+		mountpoints[1] or ""
+	)
+	print(formatted)
+
+	-- Print additional mountpoints on subsequent lines.
+	for i = 2, #mountpoints do
+		formatted = string.format(
+			format_str(prefix_rest),
+			prefix_rest,
+			"",
+			"",
+			"",
+			" ",
+			"",
+			"",
+			"",
+			mountpoints[i]
+		)
+		print(formatted)
+	end
+end
+
+-- Fetch data, process it, and print the device tree.
 local function print_tree(humanize, enable_geoms, enable_zfs)
 	local devices = {}
 
+	-- Gather GEOM device info if enabled.
 	if enable_geoms then
 		local geom_list = run_cmd("geom part list")
 		local geoms = geom_parse_list(geom_list)
@@ -372,10 +411,11 @@ local function print_tree(humanize, enable_geoms, enable_zfs)
 			return mounts[dev] or mounts["/dev/" .. dev]
 		end
 
-		local geom_devices = geoms_device_info(geoms, dev_mounts)
+		local geom_devices = geom_device_info(geoms, dev_mounts)
 		table.move(geom_devices, 1, #geom_devices, #devices + 1, devices)
 	end
 
+	-- Gather ZFS device info if enabled.
 	if enable_zfs then
 		local zpool_list = run_cmd("zpool list -H -o name,size -p")
 		local zfs_pools = parse_fields(zpool_list)
@@ -401,6 +441,7 @@ local function print_tree(humanize, enable_geoms, enable_zfs)
 		{ "MOUNTPOINTS" }
 	)
 
+	-- Print each device row.
 	for _, device in ipairs(devices) do
 		print_item(
 			max_lens,
@@ -416,6 +457,7 @@ local function print_tree(humanize, enable_geoms, enable_zfs)
 	end
 end
 
+-- Print the help message.
 local function print_help()
 	local name = arg[0]:match("([^/]+)$")
 	print("usage: " .. name .. " [-h] [-V] [-b] [-g] [-z]")
@@ -440,15 +482,21 @@ options:
           Only output information about ZFS pools and datasets]])
 end
 
+-- Print an error message to stderr.
 local function print_error(message)
 	io.stderr:write(message .. "\n")
 end
+
+--[[
+Main
+--]]
 
 local function main()
 	local humanize = true
 	local geom = true
 	local zfs = true
 
+	-- Parse command-line arguments.
 	for _, argument in ipairs(arg) do
 		if argument == "-b" or argument == "--bytes" then
 			humanize = false
@@ -465,10 +513,11 @@ local function main()
 			geom = false
 			zfs = true
 		elseif argument:match("^-") then
-			-- Handle unknown options.
-			print_error(("lsblk: invalid option %q"):format(argument))
+			-- Reject unknown options.
+			print_error(string.format("lsblk: invalid option %q", argument))
 			os.exit(2)
 		else
+			-- Reject any positional argument.
 			print_error("lsblk: too many arguments")
 			os.exit(2)
 		end
