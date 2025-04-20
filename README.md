@@ -5,6 +5,7 @@ The output of lsblk.lua is modeled on [lsblk(8)](https://linux.die.net/man/8/lsb
 lsblk.lua is implemented in [flua](https://kevans.dev/flua/), a version of Lua (currently Lua 5.4) included in the FreeBSD base system.
 
 lsblk.lua has been tested on FreeBSD 13.4-RELEASE and 14.2-RELEASE.
+The ZFS functionality works on Linux and NetBSD with OpenZFS, but the focus of this project is FreeBSD.
 
 ## Requirements
 
@@ -30,7 +31,25 @@ sudo install lsblk.lua /usr/local/bin/lsblk
 ## Usage
 
 ```none
-usage: lsblk [-h] [-V]
+usage: lsblk.lua [-h] [-V] [-b] [-g] [-z]
+
+List information about block devices.
+
+options:
+  -h, --help
+          Print this help message and exit
+
+  -V, --version
+          Print version number and exit
+
+  -b, --bytes
+          Print sizes in bytes instead of human-readable format
+
+  -g, --geom
+          Only output information about geoms of class "disk" and "part"
+
+  -z, --zfs
+          Only output information about ZFS pools and datasets
 ```
 
 ## Sample output

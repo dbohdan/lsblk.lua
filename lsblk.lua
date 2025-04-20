@@ -5,7 +5,7 @@ local lfs = require("lfs")
 
 local TYPE_DISK = "disk"
 local TYPE_PART = "part"
-local VERSION = "0.2.0"
+local VERSION = "0.3.0"
 
 local function run_cmd(cmd)
 	local f = io.popen(cmd .. " 2>/dev/null", "r")
@@ -182,7 +182,9 @@ local function print_item(
 		-- `string.format` counts bytes, not Unicode characters.
 		return "%-"
 			.. (max_lens.name + math.max(2, #prefix))
-			.. "s %3s%1s%-3s %6s %4s %"
+			.. "s %3s%1s%-3s %"
+			.. max_lens.size
+			.. "s %4s %"
 			.. max_lens.fstype
 			.. "s %s"
 	end
@@ -271,19 +273,26 @@ local function humanize_size(bytes)
 	return s .. units[i]
 end
 
-local function max_field_lengths(devices)
-	local max_lens = { fstype = 0, name = 0 }
+local function max_field_lengths(devices, humanize)
+	local max_lens = { fstype = 0, name = 0, size = 6 }
 
 	for _, device in ipairs(devices) do
 		-- Use byte length for `string.format`.
-		local len_name = #device.name
-		if len_name > max_lens.name then
-			max_lens.name = len_name
-		end
-
 		local len_fstype = #device.fstype
 		if len_fstype > max_lens.fstype then
 			max_lens.fstype = len_fstype
+		end
+
+		local size_text = humanize and humanize_size(device.size)
+			or tostring(device.size)
+		local len_size = #size_text
+		if len_size > max_lens.size then
+			max_lens.size = len_size
+		end
+
+		local len_name = #device.name
+		if len_name > max_lens.name then
+			max_lens.name = len_name
 		end
 	end
 
@@ -349,32 +358,36 @@ local function zfs_device_info(pools, datasets)
 	return devices
 end
 
-local function print_tree()
-	local geom_list = run_cmd("geom part list")
-	local geoms = geom_parse_list(geom_list)
-
-	local mount_list = run_cmd("mount")
-	local mounts = parse_mount(mount_list)
-
-	local zpool_list = run_cmd("zpool list -H -o name,size -p")
-	local zfs_pools = parse_fields(zpool_list)
-
-	local zfs_list = run_cmd("zfs list -H -o name,used,mountpoint -p")
-	local zfs_datasets = parse_fields(zfs_list)
-
-	local function dev_mounts(dev)
-		return mounts[dev] or mounts["/dev/" .. dev]
-	end
-
-	local geom_devices = geoms_device_info(geoms, dev_mounts)
-	local zfs_devices = zfs_device_info(zfs_pools, zfs_datasets)
-
+local function print_tree(humanize, enable_geoms, enable_zfs)
 	local devices = {}
-	for _, tbl in ipairs({ geom_devices, zfs_devices }) do
-		table.move(tbl, 1, #tbl, #devices + 1, devices)
+
+	if enable_geoms then
+		local geom_list = run_cmd("geom part list")
+		local geoms = geom_parse_list(geom_list)
+
+		local mount_list = run_cmd("mount")
+		local mounts = parse_mount(mount_list)
+
+		local function dev_mounts(dev)
+			return mounts[dev] or mounts["/dev/" .. dev]
+		end
+
+		local geom_devices = geoms_device_info(geoms, dev_mounts)
+		table.move(geom_devices, 1, #geom_devices, #devices + 1, devices)
 	end
 
-	local max_lens = max_field_lengths(devices)
+	if enable_zfs then
+		local zpool_list = run_cmd("zpool list -H -o name,size -p")
+		local zfs_pools = parse_fields(zpool_list)
+
+		local zfs_list = run_cmd("zfs list -H -o name,used,mountpoint -p")
+		local zfs_datasets = parse_fields(zfs_list)
+
+		local zfs_devices = zfs_device_info(zfs_pools, zfs_datasets)
+		table.move(zfs_devices, 1, #zfs_devices, #devices + 1, devices)
+	end
+
+	local max_lens = max_field_lengths(devices, humanize)
 
 	print_item(
 		max_lens,
@@ -395,7 +408,7 @@ local function print_tree()
 			device.name,
 			format_device_num(device.major),
 			format_device_num(device.minor),
-			humanize_size(device.size),
+			humanize and humanize_size(device.size) or device.size,
 			device.type,
 			device.fstype,
 			device.mountpoints
@@ -403,26 +416,64 @@ local function print_tree()
 	end
 end
 
+local function print_help()
+	local name = arg[0]:match("([^/]+)$")
+	print("usage: " .. name .. " [-h] [-V] [-b] [-g] [-z]")
+	print([[
+
+List information about block devices.
+
+options:
+  -h, --help
+          Print this help message and exit
+
+  -V, --version
+          Print version number and exit
+
+  -b, --bytes
+          Print sizes in bytes instead of human-readable format
+
+  -g, --geom
+          Only output information about geoms of class "disk" and "part"
+
+  -z, --zfs
+          Only output information about ZFS pools and datasets]])
+end
+
+local function print_error(message)
+	io.stderr:write(message .. "\n")
+end
+
 local function main()
-	if #arg == 1 then
-		if arg[1] == "-h" or arg[1] == "--help" then
-			local name = arg[0]:match("([^/]+)$")
-			print("usage: " .. name .. " [-h] [-V]")
+	local humanize = true
+	local geom = true
+	local zfs = true
+
+	for _, argument in ipairs(arg) do
+		if argument == "-b" or argument == "--bytes" then
+			humanize = false
+		elseif argument == "-g" or argument == "--geom" then
+			geom = true
+			zfs = false
+		elseif argument == "-h" or argument == "--help" then
+			print_help()
 			os.exit(0)
-		elseif arg[1] == "-V" or arg[1] == "--version" then
+		elseif argument == "-V" or argument == "--version" then
 			print(VERSION)
 			os.exit(0)
+		elseif argument == "-z" or argument == "--zfs" then
+			geom = false
+			zfs = true
 		elseif arg[1]:match("^-") then
-			print(("lsblk: unrecognized option %q"):format(arg[1]))
+			print_error(("lsblk: invalid option %q"):format(arg[1]))
+			os.exit(2)
+		else
+			print_error("lsblk: too many arguments")
 			os.exit(2)
 		end
 	end
-	if #arg >= 1 then
-		print("lsblk: too many arguments")
-		os.exit(2)
-	end
 
-	print_tree()
+	print_tree(humanize, geom, zfs)
 end
 
 main()
