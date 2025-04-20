@@ -274,7 +274,7 @@ local function humanize_size(bytes)
 end
 
 local function max_field_lengths(devices, humanize)
-	local max_lens = { fstype = 0, name = 0, size = 6 }
+	local max_lens = { fstype = 1, name = 1, size = 6 }
 
 	for _, device in ipairs(devices) do
 		-- Use byte length for `string.format`.
