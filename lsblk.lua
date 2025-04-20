@@ -464,8 +464,9 @@ local function main()
 		elseif argument == "-z" or argument == "--zfs" then
 			geom = false
 			zfs = true
-		elseif arg[1]:match("^-") then
-			print_error(("lsblk: invalid option %q"):format(arg[1]))
+		elseif argument:match("^-") then
+			-- Handle unknown options.
+			print_error(("lsblk: invalid option %q"):format(argument))
 			os.exit(2)
 		else
 			print_error("lsblk: too many arguments")
