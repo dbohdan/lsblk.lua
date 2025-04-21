@@ -1,11 +1,35 @@
 #! /usr/libexec/flua
+-- List information about block devices.
+--
 -- https://github.com/dbohdan/lsblk.lua
+--
+-- Copyright (c) 2025 D. Bohdan
+--
+-- Redistribution and use in source and binary forms, with or without
+-- modification, are permitted provided that the following conditions
+-- are met:
+-- 1. Redistributions of source code must retain the above copyright
+--    notice, this list of conditions and the following disclaimer.
+-- 2. Redistributions in binary form must reproduce the above copyright
+--    notice, this list of conditions and the following disclaimer in the
+--    documentation and/or other materials provided with the distribution.
+--
+-- THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+-- ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+-- ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+-- FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-- DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+-- OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+-- HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+-- LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+-- OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+-- SUCH DAMAGE.
 
 local lfs = require("lfs")
 
---[[
-Constants
---]]
+--- Constants
+
 local MARKER_NONE = 0
 local MARKER_MIDDLE = 1
 local MARKER_LAST = 2
@@ -15,9 +39,7 @@ local TYPE_PART = "part"
 
 local VERSION = "0.3.0"
 
---[[
-Utility functions
---]]
+--- Utility functions
 
 -- Execute a shell command and return its output as an array of lines.
 local function run_cmd(cmd)
@@ -32,12 +54,12 @@ end
 
 -- Get major/minor device numbers for a device name.
 local function get_major_minor(dev)
-	if not dev then
+	if dev == nil then
 		return "-", "-"
 	end
 
 	local attr = lfs.attributes("/dev/" .. dev)
-	if attr then
+	if attr ~= nil then
 		local major = math.floor(attr.rdev // 2 ^ 8)
 		local minor = attr.rdev % 2 ^ 8
 		return major, minor
@@ -66,15 +88,13 @@ local function humanize_size(bytes)
 		i = i + 1
 	end
 
-	local s = string.format("%.1f", bytes)
+	local s = ("%.1f"):format(bytes)
 	s = s:gsub("(%..-)0+$", "%1")
 	s = s:gsub("%.$", "")
 	return s .. units[i]
 end
 
---[[
-Parsing
---]]
+--- Parsing
 
 -- Parse a value string from geom output (boolean, number, or string).
 local function geom_parse_value(v)
@@ -85,7 +105,7 @@ local function geom_parse_value(v)
 		return false
 	end
 	local num = tonumber(v)
-	if num then
+	if num ~= nil then
 		return num
 	end
 	return v
@@ -119,7 +139,7 @@ local function geom_parse_list(geom_output)
 		end
 
 		local geom_name = line:match("^Geom name:%s+(%S+)$")
-		if geom_name then
+		if geom_name ~= nil then
 			new_geom()
 			geom["geom name"] = geom_name
 			goto continue
@@ -134,7 +154,7 @@ local function geom_parse_list(geom_output)
 		end
 
 		local index, name = line:match("^(%d+)%.%s+Name:%s+(%S+)$")
-		if index then
+		if index ~= nil then
 			current_item = {
 				name = name,
 			}
@@ -143,7 +163,7 @@ local function geom_parse_list(geom_output)
 		end
 
 		local k, v = line:match("^%s*([^:]+):%s+(.+)$")
-		if k then
+		if k ~= nil then
 			current_item[k:lower()] = geom_parse_value(v)
 		end
 
@@ -164,8 +184,8 @@ local function parse_mount(mount_output)
 		end
 
 		local device, mountpoint = line:match("^(.-) on (.-) %(")
-		if device and mountpoint then
-			if not mounts[device] then
+		if device ~= nil and mountpoint ~= nil then
+			if mounts[device] == nil then
 				mounts[device] = {}
 			end
 			table.insert(mounts[device], mountpoint)
@@ -199,9 +219,7 @@ local function parse_mediasize(mediasize)
 	return tonumber(mediasize:match("^(%d+)"))
 end
 
---[[
-Data transformation
---]]
+--- Data transformation
 
 -- Take convert the result of `geom_parse_list` to our custom device format.
 -- Add information from the system
@@ -261,7 +279,7 @@ local function zfs_device_info(pools, datasets)
 	for _, dataset in ipairs(datasets) do
 		local pool = dataset[1]:match("^[^/]+")
 
-		if not dataset_index[pool] then
+		if dataset_index[pool] == nil then
 			dataset_index[pool] = { dataset }
 		else
 			table.insert(dataset_index[pool], dataset)
@@ -324,9 +342,7 @@ local function max_field_lengths(devices, humanize)
 	return max_lens
 end
 
---[[
-Output
---]]
+--- Output
 
 -- Print a single formatted row (device or header).
 local function print_item(
@@ -364,8 +380,7 @@ local function print_item(
 		end
 	end
 
-	local formatted = string.format(
-		format_str(prefix),
+	local formatted = format_str(prefix):format(
 		prefix .. name,
 		major,
 		":",
@@ -379,8 +394,7 @@ local function print_item(
 
 	-- Print additional mountpoints on subsequent lines.
 	for i = 2, #mountpoints do
-		formatted = string.format(
-			format_str(prefix_rest),
+		formatted = format_str(prefix_rest):format(
 			prefix_rest,
 			"",
 			"",
@@ -483,13 +497,11 @@ options:
 end
 
 -- Print an error message to stderr.
-local function print_error(message)
-	io.stderr:write(message .. "\n")
+local function print_error(format_string, ...)
+	io.stderr:write(format_string:format(...) .. "\n")
 end
 
---[[
-Main
---]]
+--- Main
 
 local function main()
 	local humanize = true
@@ -514,7 +526,7 @@ local function main()
 			zfs = true
 		elseif argument:match("^-") then
 			-- Reject unknown options.
-			print_error(string.format("lsblk: invalid option %q", argument))
+			print_error("lsblk: invalid option %q", argument)
 			os.exit(2)
 		else
 			-- Reject any positional argument.
