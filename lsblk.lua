@@ -28,7 +28,9 @@
 
 local lfs = require("lfs")
 
---- Constants
+-----------------
+--- Constants ---
+-----------------
 
 local MARKER_NONE = 0
 local MARKER_MIDDLE = 1
@@ -39,7 +41,9 @@ local TYPE_PART = "part"
 
 local VERSION = "0.3.0"
 
---- Utility functions
+-------------------------
+--- Utility functions ---
+-------------------------
 
 -- Execute a shell command and return its output as an array of lines.
 local function run_cmd(cmd)
@@ -94,7 +98,9 @@ local function humanize_size(bytes)
 	return s .. units[i]
 end
 
---- Parsing
+---------------
+--- Parsing ---
+---------------
 
 -- Parse a value string from geom output (boolean, number, or string).
 local function geom_parse_value(v)
@@ -219,7 +225,9 @@ local function parse_mediasize(mediasize)
 	return tonumber(mediasize:match("^(%d+)"))
 end
 
---- Data transformation
+---------------------------
+--- Data transformation ---
+---------------------------
 
 -- Take convert the result of `geom_parse_list` to our custom device format.
 -- Add information from the system
@@ -342,7 +350,9 @@ local function max_field_lengths(devices, humanize)
 	return max_lens
 end
 
---- Output
+--------------
+--- Output ---
+--------------
 
 -- Print a single formatted row (device or header).
 local function print_item(
@@ -501,7 +511,9 @@ local function print_error(format_string, ...)
 	io.stderr:write(format_string:format(...) .. "\n")
 end
 
---- Main
+------------
+--- Main ---
+------------
 
 local function main()
 	local humanize = true
