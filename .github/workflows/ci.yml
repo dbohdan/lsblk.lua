@@ -35,4 +35,4 @@ jobs:
           version: ${{ matrix.os.version }}
           shell: bash
           run: |
-            ./test.sh
+            sudo ./test.sh
