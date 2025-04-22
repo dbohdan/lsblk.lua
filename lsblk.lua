@@ -45,6 +45,12 @@ local VERSION = "0.3.0"
 --- Utility functions ---
 -------------------------
 
+-- Print an error message to standard error and exit.
+local function fail(exit_code, format_string, ...)
+	io.stderr:write("lsblk: " .. format_string:format(...) .. "\n")
+	os.exit(exit_code)
+end
+
 -- Execute a shell command and return its output as an array of lines.
 local function run_cmd(cmd)
 	local f = io.popen(cmd .. " 2>/dev/null", "r")
@@ -52,7 +58,11 @@ local function run_cmd(cmd)
 	for line in f:lines() do
 		table.insert(lines, line)
 	end
-	f:close()
+	local result, _, status = f:close()
+	if result == nil then
+		fail(1, "command %q failed with status %d", cmd, status)
+	end
+
 	return lines
 end
 
@@ -506,11 +516,6 @@ options:
           Only output information about ZFS pools and datasets]])
 end
 
--- Print an error message to stderr.
-local function print_error(format_string, ...)
-	io.stderr:write(format_string:format(...) .. "\n")
-end
-
 ------------
 --- Main ---
 ------------
@@ -538,12 +543,10 @@ local function main()
 			zfs = true
 		elseif argument:match("^-") then
 			-- Reject unknown options.
-			print_error("lsblk: invalid option %q", argument)
-			os.exit(2)
+			fail(2, "invalid option %q", argument)
 		else
 			-- Reject any positional argument.
-			print_error("lsblk: too many arguments")
-			os.exit(2)
+			fail(2, "too many arguments")
 		end
 	end
 
