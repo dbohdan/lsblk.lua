@@ -239,7 +239,7 @@ end
 --- Data transformation ---
 ---------------------------
 
--- Take convert the result of `geom_parse_list` to our custom device format.
+-- Convert the result of `geom_parse_list` to our custom device format.
 -- Add information from the system
 -- (major and minor device number, mountpoints).
 local function geom_device_info(geoms, dev_mounts)
