@@ -39,7 +39,7 @@ local MARKER_LAST = 2
 local TYPE_DISK = "disk"
 local TYPE_PART = "part"
 
-local VERSION = "0.3.0"
+local VERSION = "0.3.1"
 
 -------------------------
 --- Utility functions ---
@@ -335,7 +335,7 @@ end
 
 -- Calculate the maximum display width needed for certain fields.
 local function max_field_lengths(devices, humanize)
-	local max_lens = { fstype = 1, name = 1, size = 6 }
+	local max_lens = { fstype = 6, name = 4, size = 6 }
 
 	for _, device in ipairs(devices) do
 		-- Use byte length for `string.format`.
