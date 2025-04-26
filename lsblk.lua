@@ -32,6 +32,8 @@ local lfs = require("lfs")
 --- Constants ---
 -----------------
 
+local COMMAND = arg[0]:match("([^/]+)$")
+
 local MARKER_NONE = 0
 local MARKER_MIDDLE = 1
 local MARKER_LAST = 2
@@ -47,7 +49,7 @@ local VERSION = "0.3.1"
 
 -- Print an error message to standard error and exit.
 local function fail(exit_code, format_string, ...)
-	io.stderr:write("lsblk: " .. format_string:format(...) .. "\n")
+	io.stderr:write(COMMAND .. ": " .. format_string:format(...) .. "\n")
 	os.exit(exit_code)
 end
 
@@ -493,8 +495,7 @@ end
 
 -- Print the help message.
 local function print_help()
-	local name = arg[0]:match("([^/]+)$")
-	print("usage: " .. name .. " [-h] [-V] [-b] [-g] [-z]")
+	print("usage: " .. COMMAND .. " [-h] [-V] [-b] [-g] [-z]")
 	print([[
 
 List information about block devices.
