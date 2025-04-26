@@ -20,12 +20,11 @@ cd lsblk.lua
 # Install for the current user.
 # You may need to add `~/.local/bin/` to `PATH`.
 mkdir -p ~/.local/bin/
-install lsblk.lua ~/.local/bin/lsblk
+install lsblk.lua ~/.local/bin/
 
 # Install for all users.
 # Replace `sudo` with `doas` or `su -c` as necessary.
-# Change `lsblk` to `lsblk-lua` or `lsblk.lua` to avoid conflict with sysutils/lsblk.
-sudo install lsblk.lua /usr/local/bin/lsblk
+sudo install lsblk.lua /usr/local/bin/
 ```
 
 ## Usage
