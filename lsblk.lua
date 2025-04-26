@@ -547,7 +547,7 @@ local function main()
 			fail(2, "invalid option %q", argument)
 		else
 			-- Reject any positional argument.
-			fail(2, "too many arguments")
+			fail(2, "positional arguments not supported")
 		end
 	end
 
