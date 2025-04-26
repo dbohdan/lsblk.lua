@@ -41,7 +41,7 @@ local MARKER_LAST = 2
 local TYPE_DISK = "disk"
 local TYPE_PART = "part"
 
-local VERSION = "0.3.1"
+local VERSION = "0.4.0"
 
 -------------------------
 --- Utility functions ---
