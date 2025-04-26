@@ -1,4 +1,4 @@
-FILES := lsblk.lua
+FILES := lsblk.lua tests.lua
 
 .PHONY: check
 check: format lint
